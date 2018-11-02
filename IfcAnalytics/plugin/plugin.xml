@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PluginDescriptor>
+	<JavaPlugin>
+		<interfaceClass>org.bimserver.plugins.services.ServicePlugin</interfaceClass>
+		<implementationClass>org.opensourcebim.ifcanalytics.IfcAnalyticsService</implementationClass>
+		<description>IFC Analytics Service</description>
+		<name>IFC Analytics Service</name>
+	</JavaPlugin>
+</PluginDescriptor>
