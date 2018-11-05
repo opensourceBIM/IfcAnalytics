@@ -11,28 +11,29 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import javax.lang.model.type.PrimitiveType;
+
 import org.bimserver.bimbots.BimBotContext;
 import org.bimserver.bimbots.BimBotsException;
 import org.bimserver.bimbots.BimBotsInput;
 import org.bimserver.bimbots.BimBotsOutput;
+import org.bimserver.database.queries.om.Query;
+import org.bimserver.database.queries.om.QueryPart;
 import org.bimserver.emf.IdEObject;
 import org.bimserver.emf.IfcModelInterface;
+import org.bimserver.emf.PackageMetaData;
 import org.bimserver.interfaces.objects.SObjectType;
 import org.bimserver.models.geometry.Bounds;
-import org.bimserver.models.geometry.Buffer;
-import org.bimserver.models.geometry.GeometryData;
 import org.bimserver.models.geometry.GeometryInfo;
 import org.bimserver.models.ifc2x3tc1.Ifc2x3tc1Package;
 import org.bimserver.models.ifc2x3tc1.IfcBuilding;
 import org.bimserver.models.ifc2x3tc1.IfcBuildingStorey;
 import org.bimserver.models.ifc2x3tc1.IfcCalendarDate;
 import org.bimserver.models.ifc2x3tc1.IfcClassification;
-import org.bimserver.models.ifc2x3tc1.IfcClassificationNotation;
 import org.bimserver.models.ifc2x3tc1.IfcClassificationNotationSelect;
 import org.bimserver.models.ifc2x3tc1.IfcClassificationReference;
 import org.bimserver.models.ifc2x3tc1.IfcGroup;
 import org.bimserver.models.ifc2x3tc1.IfcMaterial;
-import org.bimserver.models.ifc2x3tc1.IfcMaterialDefinitionRepresentation;
 import org.bimserver.models.ifc2x3tc1.IfcMaterialLayer;
 import org.bimserver.models.ifc2x3tc1.IfcMaterialLayerSet;
 import org.bimserver.models.ifc2x3tc1.IfcMaterialLayerSetUsage;
@@ -40,17 +41,22 @@ import org.bimserver.models.ifc2x3tc1.IfcMaterialSelect;
 import org.bimserver.models.ifc2x3tc1.IfcObjectDefinition;
 import org.bimserver.models.ifc2x3tc1.IfcPostalAddress;
 import org.bimserver.models.ifc2x3tc1.IfcProduct;
-import org.bimserver.models.ifc2x3tc1.IfcProject;
 import org.bimserver.models.ifc2x3tc1.IfcRelAssigns;
 import org.bimserver.models.ifc2x3tc1.IfcRelAssignsToGroup;
 import org.bimserver.models.ifc2x3tc1.IfcRelAssociatesClassification;
 import org.bimserver.models.ifc2x3tc1.IfcRelAssociatesMaterial;
 import org.bimserver.models.ifc2x3tc1.IfcRelDecomposes;
-import org.bimserver.models.ifc2x3tc1.IfcRepresentation;
 import org.bimserver.models.ifc2x3tc1.IfcRoot;
 import org.bimserver.models.ifc2x3tc1.IfcSpace;
 import org.bimserver.models.ifc2x3tc1.IfcZone;
+import org.bimserver.models.store.BooleanType;
 import org.bimserver.models.store.IfcHeader;
+import org.bimserver.models.store.ObjectDefinition;
+import org.bimserver.models.store.ParameterDefinition;
+import org.bimserver.models.store.PrimitiveDefinition;
+import org.bimserver.models.store.PrimitiveEnum;
+import org.bimserver.models.store.StoreFactory;
+import org.bimserver.plugins.PluginConfiguration;
 import org.bimserver.plugins.services.BimBotAbstractService;
 import org.bimserver.plugins.services.BimBotCaller;
 import org.bimserver.plugins.services.BimBotExecutionException;
@@ -58,8 +64,6 @@ import org.bimserver.utils.AreaUnit;
 import org.bimserver.utils.IfcUtils;
 import org.bimserver.utils.LengthUnit;
 import org.bimserver.utils.VolumeUnit;
-import org.eclipse.aether.impl.OfflineController;
-import org.eclipse.core.internal.resources.ProjectNatureDescriptor;
 import org.eclipse.emf.common.util.EList;
 import org.eclipse.emf.ecore.EClass;
 import org.eclipse.emf.ecore.EStructuralFeature;
@@ -88,12 +92,67 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 
 	private int cubesNearZero;
 
+	private PluginConfiguration pluginConfiguration;
+
 	// TODO hasCubeNearZero
 
+	public Query getPreloadQuery(PackageMetaData packageMetaData) {
+		Query query = new Query("Preload", packageMetaData);
+		QueryPart queryPart = query.createQueryPart();
+		return query;
+	}
+	
+	public boolean preloadCompleteModel() {
+		return true;
+	}
+	
+	@Override
+	public ObjectDefinition getSettingsDefinition() {
+		ObjectDefinition settingsDefinition = StoreFactory.eINSTANCE.createObjectDefinition();
+		
+		PrimitiveDefinition booleanType = StoreFactory.eINSTANCE.createPrimitiveDefinition();
+		booleanType.setType(PrimitiveEnum.BOOLEAN);
+
+		PrimitiveDefinition stringType = StoreFactory.eINSTANCE.createPrimitiveDefinition();
+		stringType.setType(PrimitiveEnum.STRING);
+		
+		BooleanType falseValue = StoreFactory.eINSTANCE.createBooleanType();
+		falseValue.setValue(false);
+		
+		ParameterDefinition clashDetectionEnabled = StoreFactory.eINSTANCE.createParameterDefinition();
+		clashDetectionEnabled.setName("Clash detection enabled");
+		clashDetectionEnabled.setIdentifier("clashdetectionenabled");
+		clashDetectionEnabled.setType(booleanType);
+		clashDetectionEnabled.setDefaultValue(falseValue);
+		settingsDefinition.getParameters().add(clashDetectionEnabled);
+		
+		ParameterDefinition clashDetectionToken = StoreFactory.eINSTANCE.createParameterDefinition();
+		clashDetectionToken.setName("Clash detection token");
+		clashDetectionToken.setIdentifier("clashdetectiontoken");
+		clashDetectionToken.setType(stringType);
+		settingsDefinition.getParameters().add(clashDetectionToken);
+
+		ParameterDefinition clashDetectionUrl = StoreFactory.eINSTANCE.createParameterDefinition();
+		clashDetectionUrl.setName("Clash detection url");
+		clashDetectionUrl.setIdentifier("clashdetectionurl");
+		clashDetectionUrl.setType(stringType);
+		settingsDefinition.getParameters().add(clashDetectionUrl);
+
+		ParameterDefinition clashDetectionIdentifier = StoreFactory.eINSTANCE.createParameterDefinition();
+		clashDetectionIdentifier.setName("Clash detection identifier");
+		clashDetectionIdentifier.setIdentifier("clashdetectionidentifier");
+		clashDetectionIdentifier.setType(stringType);
+		settingsDefinition.getParameters().add(clashDetectionIdentifier);
+		
+		return settingsDefinition;
+	}
+	
 	@Override
 	public BimBotsOutput runBimBot(BimBotsInput input, BimBotContext bimBotContext, SObjectType settings) throws BimBotsException {
 		IfcModelInterface model = input.getIfcModel();
 
+		pluginConfiguration = new PluginConfiguration(settings);
+		
 		modelLengthUnit = IfcUtils.getLengthUnit(model);
 		modelAreaUnit = modelLengthUnit.toAreaUnit();
 		modelVolumeUnit = modelLengthUnit.toVolumeUnit();
@@ -113,9 +172,9 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 		return bimBotsOutput;
 	}
 
-	private ArrayNode callClashDetectionService(BimBotsInput input) {
-		try (BimBotCaller bimBotCaller = new BimBotCaller("http://localhost:8080/services", "token")) {
-			BimBotsOutput bimBotsOutput = bimBotCaller.call("3407950", input);
+	private ArrayNode callClashDetectionService(BimBotsInput input, String url, String token, String identifier) {
+		try (BimBotCaller bimBotCaller = new BimBotCaller(url, token)) {
+			BimBotsOutput bimBotsOutput = bimBotCaller.call(identifier, input);
 			return OBJECT_MAPPER.readValue(bimBotsOutput.getData(), ArrayNode.class);
 		} catch (BimBotExecutionException e) {
 			e.printStackTrace();
@@ -131,7 +190,12 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 
 	private JsonNode processChecks(BimBotsInput input) {
 		ObjectNode checksNode = OBJECT_MAPPER.createObjectNode();
-//		checksNode.set("clashes", callClashDetectionService(input));
+		if (pluginConfiguration.getBoolean("clashdetectionenabled")) {
+			String url = pluginConfiguration.getString("clashdetectionurl");
+			String identifier = pluginConfiguration.getString("clashdetectionidentifier");
+			String token = pluginConfiguration.getString("clashdetectiontoken");
+			checksNode.set("clashes", callClashDetectionService(input, url, token, identifier));
+		}
 		checksNode.put("hasCubeNearZero", cubesNearZero == 1);
 		return checksNode;
 	}
@@ -243,8 +307,16 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 		aggregations.set("topTenMostProperties", topTenMostProperties);
 
 		ObjectNode completeModel = OBJECT_MAPPER.createObjectNode();
-		completeModel.put("averageAmountOfTrianglesPerM2", totalNrOfTriangles / totalSpaceM2);
-		completeModel.put("averageAmountOfTrianglesPerM3", totalNrOfTriangles / totalSpaceM3);
+		
+		double averagem2 = totalNrOfTriangles / totalSpaceM2;
+		double averagem3 = totalNrOfTriangles / totalSpaceM3;
+		
+		if (Double.isFinite(averagem2)) {
+			completeModel.put("averageAmountOfTrianglesPerM2", averagem2);
+		}
+		if (Double.isFinite(averagem3)) {
+			completeModel.put("averageAmountOfTrianglesPerM3", averagem3);
+		}
 
 		aggregations.set("completeModel", completeModel);
 
@@ -615,6 +687,11 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 
 	@Override
 	public boolean needsRawInput() {
+		return true;
+	}
+	
+	@Override
+	public boolean requiresGeometry() {
 		return true;
 	}
 }
