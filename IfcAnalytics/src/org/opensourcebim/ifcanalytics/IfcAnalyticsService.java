@@ -1,6 +1,8 @@
 package org.opensourcebim.ifcanalytics;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.FloatBuffer;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -16,6 +18,9 @@ import org.bimserver.bimbots.BimBotsOutput;
 import org.bimserver.emf.IdEObject;
 import org.bimserver.emf.IfcModelInterface;
 import org.bimserver.interfaces.objects.SObjectType;
+import org.bimserver.models.geometry.Bounds;
+import org.bimserver.models.geometry.Buffer;
+import org.bimserver.models.geometry.GeometryData;
 import org.bimserver.models.geometry.GeometryInfo;
 import org.bimserver.models.ifc2x3tc1.Ifc2x3tc1Package;
 import org.bimserver.models.ifc2x3tc1.IfcBuilding;
@@ -35,6 +40,7 @@ import org.bimserver.models.ifc2x3tc1.IfcMaterialSelect;
 import org.bimserver.models.ifc2x3tc1.IfcObjectDefinition;
 import org.bimserver.models.ifc2x3tc1.IfcPostalAddress;
 import org.bimserver.models.ifc2x3tc1.IfcProduct;
+import org.bimserver.models.ifc2x3tc1.IfcProject;
 import org.bimserver.models.ifc2x3tc1.IfcRelAssigns;
 import org.bimserver.models.ifc2x3tc1.IfcRelAssignsToGroup;
 import org.bimserver.models.ifc2x3tc1.IfcRelAssociatesClassification;
@@ -48,8 +54,12 @@ import org.bimserver.models.store.IfcHeader;
 import org.bimserver.plugins.services.BimBotAbstractService;
 import org.bimserver.plugins.services.BimBotCaller;
 import org.bimserver.plugins.services.BimBotExecutionException;
+import org.bimserver.utils.AreaUnit;
 import org.bimserver.utils.IfcUtils;
+import org.bimserver.utils.LengthUnit;
+import org.bimserver.utils.VolumeUnit;
 import org.eclipse.aether.impl.OfflineController;
+import org.eclipse.core.internal.resources.ProjectNatureDescriptor;
 import org.eclipse.emf.common.util.EList;
 import org.eclipse.emf.ecore.EClass;
 import org.eclipse.emf.ecore.EStructuralFeature;
@@ -67,30 +77,42 @@ import com.google.common.base.Charsets;
 public class IfcAnalyticsService extends BimBotAbstractService {
 
 	private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+	
 	private static final Logger LOGGER = LoggerFactory.getLogger(IfcAnalyticsService.class);
+	private static final AreaUnit DEFAULT_AREA_UNIT = AreaUnit.SQUARED_METER;
+	private static final VolumeUnit DEFAULT_VOLUME_UNIT = VolumeUnit.CUBIC_METER;
 	
-	// TODO convert to consistent length/volume units
+	private AreaUnit modelAreaUnit;
+	private VolumeUnit modelVolumeUnit;
+	private LengthUnit modelLengthUnit;
+
+	private int cubesNearZero;
+
 	// TODO hasCubeNearZero
-	
+
 	@Override
 	public BimBotsOutput runBimBot(BimBotsInput input, BimBotContext bimBotContext, SObjectType settings) throws BimBotsException {
 		IfcModelInterface model = input.getIfcModel();
+
+		modelLengthUnit = IfcUtils.getLengthUnit(model);
+		modelAreaUnit = modelLengthUnit.toAreaUnit();
+		modelVolumeUnit = modelLengthUnit.toVolumeUnit();
 		
 		ObjectNode result = OBJECT_MAPPER.createObjectNode();
 		result.set("header", proccessIfcHeader(model.getModelMetaData().getIfcHeader()));
-		result.set("buildings", processBuildings(model));
+		result.set("project", processProject(model));
 		result.set("materials", processMaterials(model));
 		result.set("classifications", processClassification(model));
 		result.set("aggregations", processAggregations(model));
 		result.set("checks", processChecks(input));
-		
+
 		BimBotsOutput bimBotsOutput = new BimBotsOutput("IFC_ANALYTICS_JSON_1_0", result.toString().getBytes(Charsets.UTF_8));
 		bimBotsOutput.setTitle("Ifc Analytics Results");
 		bimBotsOutput.setContentType("application/json");
-		
+
 		return bimBotsOutput;
 	}
-	
+
 	private ArrayNode callClashDetectionService(BimBotsInput input) {
 		try (BimBotCaller bimBotCaller = new BimBotCaller("http://localhost:8080/services", "token")) {
 			BimBotsOutput bimBotsOutput = bimBotCaller.call("3407950", input);
@@ -106,11 +128,11 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 		}
 		return null;
 	}
-	
+
 	private JsonNode processChecks(BimBotsInput input) {
 		ObjectNode checksNode = OBJECT_MAPPER.createObjectNode();
 //		checksNode.set("clashes", callClashDetectionService(input));
-		checksNode.put("hasCubeNearZero", false);
+		checksNode.put("hasCubeNearZero", cubesNearZero == 1);
 		return checksNode;
 	}
 
@@ -118,14 +140,14 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 		ObjectNode aggregations = OBJECT_MAPPER.createObjectNode();
 		ObjectNode perType = OBJECT_MAPPER.createObjectNode();
 		aggregations.set("perType", perType);
-		
+
 		List<ObjectDetails> objects = new ArrayList<>();
 		double totalSpaceM2 = 0;
 		double totalSpaceM3 = 0;
-		
 		int totalNrOfTriangles = 0;
-		
+
 		for (EClass ifcProductClass : model.getPackageMetaData().getAllSubClasses(Ifc2x3tc1Package.eINSTANCE.getIfcProduct())) {
+			int totalTypeTriangles = 0;
 			List<IdEObject> products = model.getAll(ifcProductClass);
 			int nrOfObjects = products.size();
 			if (nrOfObjects == 0) {
@@ -142,40 +164,49 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 				if (geometry != null) {
 					totalNrOfTypeTriangles += geometry.getPrimitiveCount();
 					totalNrOfTriangles += geometry.getPrimitiveCount();
-					objectDetails.setNrTriangles(geometry.getPrimitiveCount());
-					objectDetails.setVolume(geometry.getVolume());
+					totalTypeTriangles += geometry.getPrimitiveCount();
 					
+					double volumeM3 = VolumeUnit.CUBIC_METER.convert(geometry.getVolume(), modelVolumeUnit);
+					if (volumeM3 > 0.999 && volumeM3 < 1.001) {
+						if (allVerticesWithinOneMeterOfZero(geometry, modelLengthUnit)) {
+							cubesNearZero++;
+						}
+					}
+					
+					objectDetails.setNrTriangles(geometry.getPrimitiveCount());
+					objectDetails.setVolume(DEFAULT_VOLUME_UNIT.convert(geometry.getVolume(), modelVolumeUnit));
+
 					if (ifcProductClass.getName().equals("IfcSpace")) {
-						totalSpaceM2 += geometry.getArea();
-						totalSpaceM3 += geometry.getVolume();
+						totalSpaceM2 += DEFAULT_AREA_UNIT.convert(geometry.getArea(), modelAreaUnit);
+						totalSpaceM3 += DEFAULT_VOLUME_UNIT.convert(geometry.getVolume(), modelVolumeUnit);
 					}
 				}
-				totalNrOfPsets += IfcUtils.getNrOfPSets(product);
+				totalNrOfPsets += IfcUtils.getNrOfPSets(product, true);
 				int nrOfProperties = IfcUtils.getNrOfProperties(product);
+				totalNrOfProperties += nrOfProperties;
 				objectDetails.setNrOfProperties(nrOfProperties);
-				totalNrOfPsets += nrOfProperties;
-				totalNrOfPsets += IfcUtils.getNrOfRelations(product);
+				totalNrOfRelations += IfcUtils.getNrOfRelations(product);
 			}
 			ObjectNode productNode = OBJECT_MAPPER.createObjectNode();
 			productNode.put("numberOfObjects", nrOfObjects);
 			if (totalNrOfTypeTriangles > 0) {
-				productNode.put("averageNumberOfTriangles", totalNrOfTriangles / nrOfObjects);
+				productNode.put("averageNumberOfTriangles", totalTypeTriangles / nrOfObjects);
 			}
 			productNode.put("averageNumberOfPsets", totalNrOfPsets / nrOfObjects);
 			productNode.put("averageNumberOfProperties", totalNrOfProperties / nrOfObjects);
 			productNode.put("averageNumberOfRelations", totalNrOfRelations / nrOfObjects);
 			perType.set(ifcProductClass.getName(), productNode);
 		}
-		
+
 		objects.sort(new Comparator<ObjectDetails>() {
 			@Override
 			public int compare(ObjectDetails o1, ObjectDetails o2) {
-				return ((Float)o2.getTrianglesPerVolume()).compareTo(o1.getTrianglesPerVolume());
+				return ((Float) o2.getTrianglesPerVolume()).compareTo(o1.getTrianglesPerVolume());
 			}
 		});
-		
+
 		ArrayNode topTenMostComplex = OBJECT_MAPPER.createArrayNode();
-		for (int i=0; i<10 && i<objects.size(); i++) {
+		for (int i = 0; i < 10 && i < objects.size(); i++) {
 			ObjectDetails objectDetails = objects.get(i);
 			ObjectNode objectNode = OBJECT_MAPPER.createObjectNode();
 			objectNode.put("type", objectDetails.getProduct().eClass().getName());
@@ -184,10 +215,10 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 				objectNode.put("numberOfTriangles", objectDetails.getPrimitiveCount());
 			}
 			if (objectDetails.getVolume() != 0) {
-				objectNode.put("volume", objectDetails.getVolume());
+				objectNode.put("volumeM3", objectDetails.getVolume());
 			}
 			if (!Float.isNaN(objectDetails.getTrianglesPerVolume())) {
-				objectNode.put("trianglesPerVolume", objectDetails.getTrianglesPerVolume());
+				objectNode.put("trianglesPerM3", objectDetails.getTrianglesPerVolume());
 			}
 			topTenMostComplex.add(objectNode);
 		}
@@ -201,7 +232,7 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 		});
 
 		ArrayNode topTenMostProperties = OBJECT_MAPPER.createArrayNode();
-		for (int i=0; i<10 && i<objects.size(); i++) {
+		for (int i = 0; i < 10 && i < objects.size(); i++) {
 			ObjectDetails objectDetails = objects.get(i);
 			ObjectNode objectNode = OBJECT_MAPPER.createObjectNode();
 			objectNode.put("type", objectDetails.getProduct().eClass().getName());
@@ -210,14 +241,46 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 			topTenMostProperties.add(objectNode);
 		}
 		aggregations.set("topTenMostProperties", topTenMostProperties);
-		
+
 		ObjectNode completeModel = OBJECT_MAPPER.createObjectNode();
 		completeModel.put("averageAmountOfTrianglesPerM2", totalNrOfTriangles / totalSpaceM2);
 		completeModel.put("averageAmountOfTrianglesPerM3", totalNrOfTriangles / totalSpaceM3);
-		
+
 		aggregations.set("completeModel", completeModel);
 
 		return aggregations;
+	}
+
+	private boolean allVerticesWithinOneMeterOfZero(GeometryInfo geometryInfo, LengthUnit modelLengthUnit) {
+		boolean allVerticesWithin1Meter = true;
+		if (geometryInfo.getData() != null && geometryInfo.getData().getVertices() != null && geometryInfo.getData().getVertices().getData() != null) {
+			FloatBuffer vertices = ByteBuffer.wrap(geometryInfo.getData().getVertices().getData()).asFloatBuffer();
+			for (int i=0; i<vertices.capacity(); i++) {
+				float v = vertices.get(i);
+				float meters = LengthUnit.METER.convert(v, modelLengthUnit);
+				if (meters < -1 || meters > 1) {
+					allVerticesWithin1Meter = false;
+					break;
+				}
+			}
+		} else {
+			Bounds bounds = geometryInfo.getBoundsMm();
+			double[] d = new double[] {
+				bounds.getMin().getX(),
+				bounds.getMin().getY(),
+				bounds.getMin().getZ(),
+				bounds.getMax().getX(),
+				bounds.getMax().getY(),
+				bounds.getMax().getZ()
+			};
+			for (int i=0; i<6; i++) {
+				if (d[i] < -1000 || d[i] > 1000) {
+					allVerticesWithin1Meter = false;
+					break;
+				}
+			}
+		}
+		return allVerticesWithin1Meter;
 	}
 
 	private void putNameAndGuid(ObjectNode objectNode, IdEObject ifcRoot) {
@@ -234,13 +297,14 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 			}
 		}
 	}
-	
+
 	private JsonNode processClassification(IfcModelInterface model) {
 		ArrayNode classificationsNode = OBJECT_MAPPER.createArrayNode();
-		
+
 		Map<Long, ObjectNode> classificationMap = new HashMap<>();
 		Map<String, ObjectNode> classificationMapByString = new HashMap<>();
-		
+		Map<String, ObjectNode> classificationReferenceMapByString = new HashMap<>();
+
 		for (IfcClassification ifcClassification : model.getAll(IfcClassification.class)) {
 			String canonicalName = ifcClassification.getName() + "_" + ifcClassification.getEdition() + "_" + ifcClassification.getSource();
 			ObjectNode classificationNode = OBJECT_MAPPER.createObjectNode();
@@ -259,43 +323,32 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 				editionDateNode.put("yearComponent", editionDate.getYearComponent());
 				editionDateNode.put("monthComponent", editionDate.getMonthComponent());
 				editionDateNode.put("dayComponent", editionDate.getDayComponent());
-				
+
 				canonicalName += editionDate.getYearComponent() + "_" + editionDate.getMonthComponent() + "_" + editionDate.getDayComponent();
-				
+
 				classificationNode.set("editionDate", editionDateNode);
 			}
-			
+
 			ArrayNode referencesNode = OBJECT_MAPPER.createArrayNode();
 			classificationNode.set("references", referencesNode);
-			
+
 			if (classificationMapByString.containsKey(canonicalName)) {
 				classificationNode = classificationMapByString.get(canonicalName);
 			} else {
 				classificationMapByString.put(canonicalName, classificationNode);
+				classificationsNode.add(classificationNode);
 			}
-			classificationsNode.add(classificationNode);
 			classificationMap.put(ifcClassification.getOid(), classificationNode);
 		}
-		
+
 		ObjectNode noClassification = OBJECT_MAPPER.createObjectNode();
 		noClassification.put("name", "NO_CLASSIFICATION");
 		noClassification.set("references", OBJECT_MAPPER.createArrayNode());
 		classificationsNode.add(noClassification);
-		
+
 		Map<Long, ObjectNode> classificationReferences = new HashMap<>();
-		
+
 		for (IfcClassificationReference ifcClassificationReference : model.getAllWithSubTypes(IfcClassificationReference.class)) {
-			ObjectNode classificationReferenceNode = OBJECT_MAPPER.createObjectNode();
-			if (ifcClassificationReference.getLocation() != null) {
-				classificationReferenceNode.put("location", ifcClassificationReference.getLocation());
-			}
-			if (ifcClassificationReference.getItemReference() != null) {
-				classificationReferenceNode.put("itemReference", ifcClassificationReference.getItemReference());
-			}
-			if (ifcClassificationReference.getName() != null) {
-				classificationReferenceNode.put("name", ifcClassificationReference.getName());
-			}
-			
 			IfcClassification referencedSource = ifcClassificationReference.getReferencedSource();
 			ObjectNode classificationNode = null;
 			if (referencedSource == null) {
@@ -303,29 +356,47 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 			} else {
 				classificationNode = classificationMap.get(referencedSource.getOid());
 			}
+
+			String canonicalName = ifcClassificationReference.getLocation() + "_" + ifcClassificationReference.getItemReference() + "_" + ifcClassificationReference.getName();
+			ObjectNode classificationReferenceNode = null;
+			if (classificationReferenceMapByString.containsKey(canonicalName)) {
+				classificationReferenceNode = classificationReferenceMapByString.get(canonicalName);
+			} else {
+				classificationReferenceNode = OBJECT_MAPPER.createObjectNode();
+				if (ifcClassificationReference.getLocation() != null) {
+					classificationReferenceNode.put("location", ifcClassificationReference.getLocation());
+				}
+				if (ifcClassificationReference.getItemReference() != null) {
+					classificationReferenceNode.put("itemReference", ifcClassificationReference.getItemReference());
+				}
+				if (ifcClassificationReference.getName() != null) {
+					classificationReferenceNode.put("name", ifcClassificationReference.getName());
+				}
+				classificationReferenceNode.put("numberOfObjects", 0);
+				classificationReferenceMapByString.put(canonicalName, classificationReferenceNode);
+				((ArrayNode) classificationNode.get("references")).add(classificationReferenceNode);
+			}
+
 			classificationReferences.put(ifcClassificationReference.getOid(), classificationReferenceNode);
-			((ArrayNode)classificationNode.get("references")).add(classificationReferenceNode);
-			classificationReferenceNode.put("numberOfObjects", 0);
 		}
-		
+
 		for (IfcRelAssociatesClassification ifcRelAssociatesClassification : model.getAll(IfcRelAssociatesClassification.class)) {
-			ifcRelAssociatesClassification.getRelatedObjects().size();
 			IfcClassificationNotationSelect relatingClassification = ifcRelAssociatesClassification.getRelatingClassification();
 			if (relatingClassification instanceof IfcClassificationReference) {
-				IfcClassificationReference ifcClassificationReference = (IfcClassificationReference)relatingClassification;
+				IfcClassificationReference ifcClassificationReference = (IfcClassificationReference) relatingClassification;
 				ObjectNode classificationReferenceNode = classificationReferences.get(ifcClassificationReference.getOid());
-				classificationReferenceNode.put("numberOfObjects", classificationReferenceNode.get("numberOfObjects").asInt() + 1);
+				classificationReferenceNode.put("numberOfObjects", classificationReferenceNode.get("numberOfObjects").asInt() + ifcRelAssociatesClassification.getRelatedObjects().size());
 			}
 		}
-		
+
 		return classificationsNode;
 	}
 
 	private JsonNode processMaterials(IfcModelInterface model) {
 		ArrayNode materialsNode = OBJECT_MAPPER.createArrayNode();
-		
+
 		Map<Long, ObjectNode> materialNodes = new HashMap<>();
-		
+
 		for (IfcMaterial ifcMaterial : model.getAll(IfcMaterial.class)) {
 			ObjectNode materialNode = OBJECT_MAPPER.createObjectNode();
 			putNameAndGuid(materialNode, ifcMaterial);
@@ -335,7 +406,7 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 		}
 
 		Set<Long> objectsWithMaterial = new HashSet<>();
-		
+
 		for (IfcRelAssociatesMaterial ifcRelAssociatesMaterial : model.getAll(IfcRelAssociatesMaterial.class)) {
 			EList<IfcRoot> objects = ifcRelAssociatesMaterial.getRelatedObjects();
 			for (IfcRoot object : objects) {
@@ -346,7 +417,7 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 				ObjectNode materialNode = materialNodes.get(relatingMaterial.getOid());
 				materialNode.put("nrOfProducts", materialNode.get("nrOfProducts").asInt() + objects.size());
 			} else if (relatingMaterial instanceof IfcMaterialLayerSetUsage) {
-				IfcMaterialLayerSetUsage ifcMaterialLayerSetUsage = (IfcMaterialLayerSetUsage)relatingMaterial;
+				IfcMaterialLayerSetUsage ifcMaterialLayerSetUsage = (IfcMaterialLayerSetUsage) relatingMaterial;
 				IfcMaterialLayerSet forLayerSet = ifcMaterialLayerSetUsage.getForLayerSet();
 				for (IfcMaterialLayer ifcMaterialLayer : forLayerSet.getMaterialLayers()) {
 					IfcMaterial ifcMaterial = ifcMaterialLayer.getMaterial();
@@ -357,7 +428,7 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 //				LOGGER.info("To implement: " + relatingMaterial);
 			}
 		}
-		
+
 		ObjectNode noMaterialNode = OBJECT_MAPPER.createObjectNode();
 		noMaterialNode.put("name", "NO_MATERIAL");
 		materialsNode.add(noMaterialNode);
@@ -368,102 +439,164 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 			}
 		}
 		noMaterialNode.put("nrOfProducts", objectsWithoutMaterial);
-		
+
 		return materialsNode;
 	}
 
-	private JsonNode processBuildings(IfcModelInterface model) {
-		ArrayNode buildingsNode = OBJECT_MAPPER.createArrayNode();
+	private JsonNode processProject(IfcModelInterface model) {
+		IdEObject ifcProject = model.getFirst(model.getPackageMetaData().getEClass("IfcProject"));
+		if (ifcProject == null) {
+			return null;
+		}
+		ObjectNode projectNode = OBJECT_MAPPER.createObjectNode();
+		putNameAndGuid(projectNode, ifcProject);
+		IdEObject unitInContext = (IdEObject) ifcProject.eGet(ifcProject.eClass().getEStructuralFeature("UnitsInContext"));
 		
-		for (IfcBuilding ifcBuilding : model.getAll(IfcBuilding.class)) {
-			IfcPostalAddress buildingAddress = ifcBuilding.getBuildingAddress();
-			if (buildingAddress != null) {
-				
+		if (unitInContext != null) {
+			ArrayNode unitsNode = OBJECT_MAPPER.createArrayNode();
+			List<IdEObject> units = (List<IdEObject>) unitInContext.eGet(unitInContext.eClass().getEStructuralFeature("Units"));
+			for (IdEObject unit : units) {
+				ObjectNode unitNode = OBJECT_MAPPER.createObjectNode();
+				EStructuralFeature unitTypeFeature = unit.eClass().getEStructuralFeature("UnitType");
+				if (unitTypeFeature != null) {
+					Object unitType = unit.eGet(unitTypeFeature);
+					if (unitType != null) {
+						unitNode.put("unitType", unitType.toString());
+					}
+				}
+				EStructuralFeature nameFeature = unit.eClass().getEStructuralFeature("Name");
+				if (nameFeature != null) {
+					Object name = unit.eGet(nameFeature);
+					if (name != null) {
+						unitNode.put("name", name.toString());
+					}
+				}
+				EStructuralFeature prefixFeature = unit.eClass().getEStructuralFeature("Prefix");
+				if (prefixFeature != null) {
+					Object prefix = unit.eGet(prefixFeature);
+					if (prefix != null) {
+						unitNode.put("prefix", prefix.toString());
+					}
+				}
+				unitsNode.add(unitNode);
 			}
-			ObjectNode buildingNode = OBJECT_MAPPER.createObjectNode();
-			buildingsNode.add(buildingNode);
-			
-			putNameAndGuid(buildingNode, ifcBuilding);
+			projectNode.set("units", unitsNode);
+		}
 
-			ArrayNode storeysNode = OBJECT_MAPPER.createArrayNode();
-			buildingNode.set("storeys", storeysNode);
-			
-			for (IfcRelDecomposes ifcRelDecomposes : ifcBuilding.getIsDecomposedBy()) {
-				for (IfcObjectDefinition ifcObjectDefinition : ifcRelDecomposes.getRelatedObjects()) {
-					if (ifcObjectDefinition instanceof IfcBuildingStorey) {
-						IfcBuildingStorey ifcBuildingStorey = (IfcBuildingStorey)ifcObjectDefinition;
-						int numberOfObjectsInStorey = IfcUtils.countDecomposed(ifcBuildingStorey);
-						
-						ObjectNode buildingStoreyNode = OBJECT_MAPPER.createObjectNode();
-						buildingStoreyNode.put("name", ifcBuildingStorey.getName());
-						buildingStoreyNode.put("guid", ifcBuildingStorey.getGlobalId());
-						buildingStoreyNode.put("totalNumberOfObjects", numberOfObjectsInStorey);
-						
-						ArrayNode spacesNode = OBJECT_MAPPER.createArrayNode();
-						for (IfcRelDecomposes ifcRelDecomposes2 : ifcBuildingStorey.getIsDecomposedBy()) {
-							for (IfcObjectDefinition ifcObjectDefinition2 : ifcRelDecomposes2.getRelatedObjects()) {
-								if (ifcObjectDefinition2 instanceof IfcSpace) {
-									IfcSpace ifcSpace = (IfcSpace)ifcObjectDefinition2;
-									ObjectNode spaceNode = OBJECT_MAPPER.createObjectNode();
-									putNameAndGuid(spaceNode, ifcSpace);
-									GeometryInfo spaceGeometry = ifcSpace.getGeometry();
-									if (spaceGeometry != null) {
-										spaceNode.put("m2", spaceGeometry.getArea());
-										spaceNode.put("m3", spaceGeometry.getVolume());
-									}
-									ArrayNode zonesNode = OBJECT_MAPPER.createArrayNode();
-									for (IfcRelAssigns ifcRelAssigns : ifcSpace.getHasAssignments()) {
-										if (ifcRelAssigns instanceof IfcRelAssignsToGroup) {
-											IfcRelAssignsToGroup ifcRelAssignsToGroup = (IfcRelAssignsToGroup)ifcRelAssigns;
-											IfcGroup relatingGroup = ifcRelAssignsToGroup.getRelatingGroup();
-											if (relatingGroup instanceof IfcZone) {
-												IfcZone ifcZone = (IfcZone)relatingGroup;
-												ObjectNode zoneNode = OBJECT_MAPPER.createObjectNode();
-												putNameAndGuid(zoneNode, ifcZone);
-												zonesNode.add(zoneNode);
-											}
+		List<IdEObject> isDecomposedBy = (List<IdEObject>) ifcProject.eGet(ifcProject.eClass().getEStructuralFeature("IsDecomposedBy"));
+		ArrayNode sitesNode = OBJECT_MAPPER.createArrayNode();
+		for (IdEObject ifcRelDecomposes : isDecomposedBy) {
+			List<IdEObject> sites = (List<IdEObject>) ifcRelDecomposes.eGet(ifcRelDecomposes.eClass().getEStructuralFeature("RelatedObjects"));
+			for (IdEObject ifcSite : sites) {
+				sitesNode.add(processSite(model, ifcSite));
+			}
+		}
+		projectNode.set("sites", sitesNode);
+		return projectNode;
+	}
+
+	private ObjectNode processBuilding(IfcModelInterface model, IfcBuilding ifcBuilding) {
+		IfcPostalAddress buildingAddress = ifcBuilding.getBuildingAddress();
+		if (buildingAddress != null) {
+
+		}
+		ObjectNode buildingNode = OBJECT_MAPPER.createObjectNode();
+
+		putNameAndGuid(buildingNode, ifcBuilding);
+
+		ArrayNode storeysNode = OBJECT_MAPPER.createArrayNode();
+		buildingNode.set("storeys", storeysNode);
+
+		for (IfcRelDecomposes ifcRelDecomposes : ifcBuilding.getIsDecomposedBy()) {
+			for (IfcObjectDefinition ifcObjectDefinition : ifcRelDecomposes.getRelatedObjects()) {
+				if (ifcObjectDefinition instanceof IfcBuildingStorey) {
+					IfcBuildingStorey ifcBuildingStorey = (IfcBuildingStorey) ifcObjectDefinition;
+					int numberOfObjectsInStorey = IfcUtils.countDecomposed(ifcBuildingStorey);
+
+					ObjectNode buildingStoreyNode = OBJECT_MAPPER.createObjectNode();
+					putNameAndGuid(buildingStoreyNode, ifcBuildingStorey);
+					buildingStoreyNode.put("totalNumberOfObjects", numberOfObjectsInStorey);
+
+					ArrayNode spacesNode = OBJECT_MAPPER.createArrayNode();
+					for (IfcRelDecomposes ifcRelDecomposes2 : ifcBuildingStorey.getIsDecomposedBy()) {
+						for (IfcObjectDefinition ifcObjectDefinition2 : ifcRelDecomposes2.getRelatedObjects()) {
+							if (ifcObjectDefinition2 instanceof IfcSpace) {
+								IfcSpace ifcSpace = (IfcSpace) ifcObjectDefinition2;
+								ObjectNode spaceNode = OBJECT_MAPPER.createObjectNode();
+								putNameAndGuid(spaceNode, ifcSpace);
+								GeometryInfo spaceGeometry = ifcSpace.getGeometry();
+								if (spaceGeometry != null) {
+									spaceNode.put("m2", DEFAULT_AREA_UNIT.convert(spaceGeometry.getArea(), modelAreaUnit));
+									spaceNode.put("m3", DEFAULT_VOLUME_UNIT.convert(spaceGeometry.getVolume(), modelVolumeUnit));
+								}
+								ArrayNode zonesNode = OBJECT_MAPPER.createArrayNode();
+								for (IfcRelAssigns ifcRelAssigns : ifcSpace.getHasAssignments()) {
+									if (ifcRelAssigns instanceof IfcRelAssignsToGroup) {
+										IfcRelAssignsToGroup ifcRelAssignsToGroup = (IfcRelAssignsToGroup) ifcRelAssigns;
+										IfcGroup relatingGroup = ifcRelAssignsToGroup.getRelatingGroup();
+										if (relatingGroup instanceof IfcZone) {
+											IfcZone ifcZone = (IfcZone) relatingGroup;
+											ObjectNode zoneNode = OBJECT_MAPPER.createObjectNode();
+											putNameAndGuid(zoneNode, ifcZone);
+											zonesNode.add(zoneNode);
 										}
 									}
-									if (zonesNode.size() > 0) {
-										spaceNode.set("zones", zonesNode);
-									}
-									spacesNode.add(spaceNode);
 								}
+								if (zonesNode.size() > 0) {
+									spaceNode.set("zones", zonesNode);
+								}
+								spacesNode.add(spaceNode);
 							}
 						}
-						buildingStoreyNode.set("spaces", spacesNode);
-						
-						storeysNode.add(buildingStoreyNode);
 					}
+					buildingStoreyNode.set("spaces", spacesNode);
+
+					storeysNode.add(buildingStoreyNode);
 				}
 			}
 		}
-		
-		return buildingsNode;
+		return buildingNode;
+	}
+
+	private JsonNode processSite(IfcModelInterface model, IdEObject ifcSite) {
+		ObjectNode siteNode = OBJECT_MAPPER.createObjectNode();
+		putNameAndGuid(siteNode, ifcSite);
+
+		ArrayNode buildingsNode = OBJECT_MAPPER.createArrayNode();
+		List<IdEObject> isDecomposedBy = (List<IdEObject>) ifcSite.eGet(ifcSite.eClass().getEStructuralFeature("IsDecomposedBy"));
+		for (IdEObject ifcRelDecomposes : isDecomposedBy) {
+			List<IdEObject> relatedObjects = (List<IdEObject>) ifcRelDecomposes.eGet(ifcRelDecomposes.eClass().getEStructuralFeature("RelatedObjects"));
+			for (IdEObject ifcBuilding : relatedObjects) {
+				buildingsNode.add(processBuilding(model, (IfcBuilding) ifcBuilding));
+			}
+		}
+		siteNode.set("buildings", buildingsNode);
+
+		return siteNode;
 	}
 
 	private ObjectNode proccessIfcHeader(IfcHeader ifcHeader) {
 		ObjectNode headerNode = OBJECT_MAPPER.createObjectNode();
-		
+
 		ArrayNode authorsNode = OBJECT_MAPPER.createArrayNode();
 		headerNode.set("author", authorsNode);
-		
+
 		for (String author : ifcHeader.getAuthor()) {
 			authorsNode.add(author);
 		}
-		
+
 		headerNode.put("authorization", ifcHeader.getAuthorization());
 		ArrayNode descriptionsNode = OBJECT_MAPPER.createArrayNode();
 		for (String description : ifcHeader.getDescription()) {
 			descriptionsNode.add(description);
 		}
 		headerNode.set("description", descriptionsNode);
-		
+
 		headerNode.put("filename", ifcHeader.getFilename());
 		headerNode.put("schemaVersion", ifcHeader.getIfcSchemaVersion());
 		headerNode.put("implementationLevel", ifcHeader.getImplementationLevel());
-		
-		ArrayNode organizationsNode = OBJECT_MAPPER.createArrayNode();		
+
+		ArrayNode organizationsNode = OBJECT_MAPPER.createArrayNode();
 		for (String organization : ifcHeader.getOrganization()) {
 			organizationsNode.add(organization);
 		}
@@ -471,7 +604,7 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 		headerNode.put("originatingSystem", ifcHeader.getOriginatingSystem());
 		headerNode.put("preProcessorVersion", ifcHeader.getPreProcessorVersion());
 		headerNode.put("timeStamp", ifcHeader.getTimeStamp().getTime());
-		
+
 		return headerNode;
 	}
 
@@ -479,7 +612,7 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 	public String getOutputSchema() {
 		return "IFC_ANALYTICS_JSON_1_0";
 	}
-	
+
 	@Override
 	public boolean needsRawInput() {
 		return true;
