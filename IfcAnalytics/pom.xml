@@ -5,6 +5,7 @@
 	<version>0.0.2-SNAPSHOT</version>
 	<name>IFC Analytics</name>
 	<description>IFC Analytics</description>
+	<url>https://github.com/opensourceBIM/IfcAnalytics</url>
 	<organization>
 		<name>OpenSource BIM</name>
 		<url>opensourcebim.org</url>
