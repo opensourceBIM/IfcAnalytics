@@ -190,11 +190,13 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 
 	private JsonNode processChecks(BimBotsInput input) {
 		ObjectNode checksNode = OBJECT_MAPPER.createObjectNode();
-		if (pluginConfiguration.getBoolean("clashdetectionenabled")) {
-			String url = pluginConfiguration.getString("clashdetectionurl");
-			String identifier = pluginConfiguration.getString("clashdetectionidentifier");
-			String token = pluginConfiguration.getString("clashdetectiontoken");
-			checksNode.set("clashes", callClashDetectionService(input, url, token, identifier));
+		if (pluginConfiguration.has("clashdetectionenabled")) {
+			if (pluginConfiguration.getBoolean("clashdetectionenabled")) {
+				String url = pluginConfiguration.getString("clashdetectionurl");
+				String identifier = pluginConfiguration.getString("clashdetectionidentifier");
+				String token = pluginConfiguration.getString("clashdetectiontoken");
+				checksNode.set("clashes", callClashDetectionService(input, url, token, identifier));
+			}
 		}
 		checksNode.put("hasCubeNearZero", cubesNearZero == 1);
 		return checksNode;
