@@ -420,6 +420,11 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 		noClassification.set("references", OBJECT_MAPPER.createArrayNode());
 		classificationsNode.add(noClassification);
 
+		ObjectNode noClassificationReference = OBJECT_MAPPER.createObjectNode();
+		noClassificationReference.put("name", "NO_CLASSIFICATION_REFERENCE");
+		noClassificationReference.put("numberOfObjects", 0);
+		((ArrayNode)noClassification.get("references")).add(noClassificationReference);
+		
 		Map<Long, ObjectNode> classificationReferences = new HashMap<>();
 
 		for (IfcClassificationReference ifcClassificationReference : model.getAllWithSubTypes(IfcClassificationReference.class)) {
@@ -453,13 +458,26 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 
 			classificationReferences.put(ifcClassificationReference.getOid(), classificationReferenceNode);
 		}
+		
+		Set<Long> set = new HashSet<>();
 
 		for (IfcRelAssociatesClassification ifcRelAssociatesClassification : model.getAll(IfcRelAssociatesClassification.class)) {
 			IfcClassificationNotationSelect relatingClassification = ifcRelAssociatesClassification.getRelatingClassification();
 			if (relatingClassification instanceof IfcClassificationReference) {
 				IfcClassificationReference ifcClassificationReference = (IfcClassificationReference) relatingClassification;
 				ObjectNode classificationReferenceNode = classificationReferences.get(ifcClassificationReference.getOid());
-				classificationReferenceNode.put("numberOfObjects", classificationReferenceNode.get("numberOfObjects").asInt() + ifcRelAssociatesClassification.getRelatedObjects().size());
+				ifcRelAssociatesClassification.getRelatedObjects();
+				EList<IfcRoot> relatedObjects = ifcRelAssociatesClassification.getRelatedObjects();
+				for (IfcRoot ifcRoot : relatedObjects) {
+					set.add(ifcRoot.getOid());
+				}
+				classificationReferenceNode.put("numberOfObjects", classificationReferenceNode.get("numberOfObjects").asInt() + relatedObjects.size());
+			}
+		}
+		
+		for (IfcProduct ifcProduct : model.getAllWithSubTypes(IfcProduct.class)) {
+			if (!set.contains(ifcProduct.getOid())) {
+				noClassificationReference.put("numberOfObjects", noClassificationReference.get("numberOfObjects").asInt() + 1);
 			}
 		}
 
