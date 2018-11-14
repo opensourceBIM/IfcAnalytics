@@ -11,18 +11,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import javax.lang.model.type.PrimitiveType;
-
 import org.bimserver.bimbots.BimBotContext;
 import org.bimserver.bimbots.BimBotsException;
 import org.bimserver.bimbots.BimBotsInput;
 import org.bimserver.bimbots.BimBotsOutput;
-import org.bimserver.database.queries.om.Query;
-import org.bimserver.database.queries.om.QueryPart;
 import org.bimserver.emf.IdEObject;
 import org.bimserver.emf.IfcModelInterface;
-import org.bimserver.emf.PackageMetaData;
-import org.bimserver.interfaces.objects.SObjectType;
 import org.bimserver.models.geometry.Bounds;
 import org.bimserver.models.geometry.GeometryInfo;
 import org.bimserver.models.ifc2x3tc1.Ifc2x3tc1Package;
@@ -58,7 +52,7 @@ import org.bimserver.models.store.PrimitiveEnum;
 import org.bimserver.models.store.StoreFactory;
 import org.bimserver.plugins.PluginConfiguration;
 import org.bimserver.plugins.services.BimBotAbstractService;
-import org.bimserver.plugins.services.BimBotCaller;
+import org.bimserver.plugins.services.BimBotClient;
 import org.bimserver.plugins.services.BimBotExecutionException;
 import org.bimserver.utils.AreaUnit;
 import org.bimserver.utils.IfcUtils;
@@ -67,8 +61,6 @@ import org.bimserver.utils.VolumeUnit;
 import org.eclipse.emf.common.util.EList;
 import org.eclipse.emf.ecore.EClass;
 import org.eclipse.emf.ecore.EStructuralFeature;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.databind.JsonMappingException;
@@ -81,8 +73,6 @@ import com.google.common.base.Charsets;
 public class IfcAnalyticsService extends BimBotAbstractService {
 
 	private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-	
-	private static final Logger LOGGER = LoggerFactory.getLogger(IfcAnalyticsService.class);
 	private static final AreaUnit DEFAULT_AREA_UNIT = AreaUnit.SQUARED_METER;
 	private static final VolumeUnit DEFAULT_VOLUME_UNIT = VolumeUnit.CUBIC_METER;
 	
@@ -94,14 +84,6 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 
 	private PluginConfiguration pluginConfiguration;
 
-	// TODO hasCubeNearZero
-
-	public Query getPreloadQuery(PackageMetaData packageMetaData) {
-		Query query = new Query("Preload", packageMetaData);
-		QueryPart queryPart = query.createQueryPart();
-		return query;
-	}
-	
 	public boolean preloadCompleteModel() {
 		return true;
 	}
@@ -148,11 +130,9 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 	}
 	
 	@Override
-	public BimBotsOutput runBimBot(BimBotsInput input, BimBotContext bimBotContext, SObjectType settings) throws BimBotsException {
+	public BimBotsOutput runBimBot(BimBotsInput input, BimBotContext bimBotContext, PluginConfiguration pluginConfiguration) throws BimBotsException {
 		IfcModelInterface model = input.getIfcModel();
 
-		pluginConfiguration = new PluginConfiguration(settings);
-		
 		modelLengthUnit = IfcUtils.getLengthUnit(model);
 		modelAreaUnit = modelLengthUnit.toAreaUnit();
 		modelVolumeUnit = modelLengthUnit.toVolumeUnit();
@@ -173,8 +153,8 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 	}
 
 	private ArrayNode callClashDetectionService(BimBotsInput input, String url, String token, String identifier) {
-		try (BimBotCaller bimBotCaller = new BimBotCaller(url, token)) {
-			BimBotsOutput bimBotsOutput = bimBotCaller.call(identifier, input);
+		try (BimBotClient bimBotClient = new BimBotClient(url, token)) {
+			BimBotsOutput bimBotsOutput = bimBotClient.call(identifier, input);
 			return OBJECT_MAPPER.readValue(bimBotsOutput.getData(), ArrayNode.class);
 		} catch (BimBotExecutionException e) {
 			e.printStackTrace();
