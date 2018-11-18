@@ -82,8 +82,6 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 
 	private int cubesNearZero;
 
-	private PluginConfiguration pluginConfiguration;
-
 	public boolean preloadCompleteModel() {
 		return true;
 	}
@@ -143,7 +141,7 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 		result.set("materials", processMaterials(model));
 		result.set("classifications", processClassification(model));
 		result.set("aggregations", processAggregations(model));
-		result.set("checks", processChecks(input));
+		result.set("checks", processChecks(input, pluginConfiguration));
 
 		BimBotsOutput bimBotsOutput = new BimBotsOutput("IFC_ANALYTICS_JSON_1_0", result.toString().getBytes(Charsets.UTF_8));
 		bimBotsOutput.setTitle("Ifc Analytics Results");
@@ -168,7 +166,7 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 		return null;
 	}
 
-	private JsonNode processChecks(BimBotsInput input) {
+	private JsonNode processChecks(BimBotsInput input, PluginConfiguration pluginConfiguration) {
 		ObjectNode checksNode = OBJECT_MAPPER.createObjectNode();
 		if (pluginConfiguration.has("clashdetectionenabled")) {
 			if (pluginConfiguration.getBoolean("clashdetectionenabled")) {
