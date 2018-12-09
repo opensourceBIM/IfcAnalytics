@@ -87,7 +87,7 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 	}
 	
 	@Override
-	public ObjectDefinition getSettingsDefinition() {
+	public ObjectDefinition getUserSettingsDefinition() {
 		ObjectDefinition settingsDefinition = StoreFactory.eINSTANCE.createObjectDefinition();
 		
 		PrimitiveDefinition booleanType = StoreFactory.eINSTANCE.createPrimitiveDefinition();
