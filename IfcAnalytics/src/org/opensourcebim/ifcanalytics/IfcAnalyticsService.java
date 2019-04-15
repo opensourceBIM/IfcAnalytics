@@ -444,7 +444,6 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 			if (relatingClassification instanceof IfcClassificationReference) {
 				IfcClassificationReference ifcClassificationReference = (IfcClassificationReference) relatingClassification;
 				ObjectNode classificationReferenceNode = classificationReferences.get(ifcClassificationReference.getOid());
-				ifcRelAssociatesClassification.getRelatedObjects();
 				EList<IfcRoot> relatedObjects = ifcRelAssociatesClassification.getRelatedObjects();
 				for (IfcRoot ifcRoot : relatedObjects) {
 					set.add(ifcRoot.getOid());
