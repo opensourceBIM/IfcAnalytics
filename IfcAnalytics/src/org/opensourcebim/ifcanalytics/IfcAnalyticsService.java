@@ -189,6 +189,11 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 		double totalSpaceM2 = 0;
 		double totalSpaceM3 = 0;
 		int totalNrOfTriangles = 0;
+		
+		long totalNrOfProperties = 0;
+		long totalNrOfRelations = 0;
+		long totalNrOfPsets = 0;
+		int totalNrOfObjects = 0;
 
 		for (EClass ifcProductClass : model.getPackageMetaData().getAllSubClasses(Ifc2x3tc1Package.eINSTANCE.getIfcProduct())) {
 			int totalTypeTriangles = 0;
@@ -197,10 +202,13 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 			if (nrOfObjects == 0) {
 				continue;
 			}
+			
+			totalNrOfObjects += nrOfObjects;
+			
 			int totalNrOfTypeTriangles = 0;
-			int totalNrOfPsets = 0;
-			int totalNrOfProperties = 0;
-			int totalNrOfRelations = 0;
+			int totalNrOfTypePsets = 0;
+			int totalNrOfTypeProperties = 0;
+			int totalNrOfTypeRelations = 0;
 			for (IdEObject product : products) {
 				ObjectDetails objectDetails = new ObjectDetails(product);
 				objects.add(objectDetails);
@@ -225,21 +233,25 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 						totalSpaceM3 += DEFAULT_VOLUME_UNIT.convert(geometry.getVolume(), modelVolumeUnit);
 					}
 				}
-				totalNrOfPsets += IfcUtils.getNrOfPSets(product, true);
+				totalNrOfTypePsets += IfcUtils.getNrOfPSets(product, true);
 				int nrOfProperties = IfcUtils.getNrOfProperties(product);
-				totalNrOfProperties += nrOfProperties;
+				totalNrOfTypeProperties += nrOfProperties;
 				objectDetails.setNrOfProperties(nrOfProperties);
-				totalNrOfRelations += IfcUtils.getNrOfRelations(product);
+				totalNrOfTypeRelations += IfcUtils.getNrOfRelations(product);
 			}
 			ObjectNode productNode = OBJECT_MAPPER.createObjectNode();
 			productNode.put("numberOfObjects", nrOfObjects);
 			if (totalNrOfTypeTriangles > 0) {
 				productNode.put("averageNumberOfTriangles", totalTypeTriangles / nrOfObjects);
 			}
-			productNode.put("averageNumberOfPsets", totalNrOfPsets / nrOfObjects);
-			productNode.put("averageNumberOfProperties", totalNrOfProperties / nrOfObjects);
-			productNode.put("averageNumberOfRelations", totalNrOfRelations / nrOfObjects);
+			productNode.put("averageNumberOfPsets", totalNrOfTypePsets / nrOfObjects);
+			productNode.put("averageNumberOfProperties", totalNrOfTypeProperties / nrOfObjects);
+			productNode.put("averageNumberOfRelations", totalNrOfTypeRelations / nrOfObjects);
 			perType.set(ifcProductClass.getName(), productNode);
+			
+			totalNrOfProperties += totalNrOfTypeProperties;
+			totalNrOfRelations += totalNrOfTypeRelations;
+			totalNrOfPsets += totalNrOfTypePsets;
 		}
 
 		objects.sort(new Comparator<ObjectDetails>() {
@@ -290,6 +302,20 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 		
 		double averagem2 = totalNrOfTriangles / totalSpaceM2;
 		double averagem3 = totalNrOfTriangles / totalSpaceM3;
+
+		completeModel.put("totalTriangles", totalNrOfTriangles);
+		completeModel.put("totalSpaceM2", totalSpaceM2);
+		completeModel.put("totalSpaceM3", totalSpaceM3);
+		
+		completeModel.put("totalNrOfObjects", totalNrOfObjects);
+		completeModel.put("totalNrOfProperties", totalNrOfProperties);
+		completeModel.put("totalNrOfPsets", totalNrOfPsets);
+		completeModel.put("totalNrOfRelations", totalNrOfRelations);
+
+		double averageNrOfObjectsPerM3 = totalNrOfObjects / totalSpaceM3;
+		completeModel.put("averageNrOfObjectsPerM3", averageNrOfObjectsPerM3);
+		double averageNrOfPropertiesPerObject = totalNrOfProperties / totalNrOfObjects;
+		completeModel.put("averageNrOfPropertiesPerObject", averageNrOfPropertiesPerObject);
 		
 		if (Double.isFinite(averagem2)) {
 			completeModel.put("averageAmountOfTrianglesPerM2", averagem2);
