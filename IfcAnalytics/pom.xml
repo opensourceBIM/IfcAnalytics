@@ -1,10 +1,9 @@
 <?xml version="1.0"?>
-<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
-    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.opensourcebim</groupId>
   <artifactId>ifcanalytics</artifactId>
-  <version>0.0.35-SNAPSHOT</version>
+  <version>0.0.35</version>
   <name>IFC Analytics</name>
   <description>IFC Analytics</description>
   <url>https://github.com/opensourceBIM/IfcAnalytics</url>
@@ -28,7 +27,7 @@
   <scm>
     <connection>scm:git:https://github.com/opensourceBIM/IfcAnalytics.git</connection>
     <developerConnection>scm:git:https://github.com/opensourceBIM/IfcAnalytics.git</developerConnection>
-    <tag>ifcanalytics-0.0.01</tag>
+    <tag>ifcanalytics-0.0.35</tag>
     <url>https://github.com/opensourceBIM/IfcAnalytics.git</url>
   </scm>
   <issueManagement>
