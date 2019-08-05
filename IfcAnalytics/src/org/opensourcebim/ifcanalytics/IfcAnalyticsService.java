@@ -314,7 +314,7 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 
 		double averageNrOfObjectsPerM3 = totalNrOfObjects / totalSpaceM3;
 		completeModel.put("averageNrOfObjectsPerM3", averageNrOfObjectsPerM3);
-		double averageNrOfPropertiesPerObject = totalNrOfProperties / totalNrOfObjects;
+		double averageNrOfPropertiesPerObject = (double)totalNrOfProperties / totalNrOfObjects;
 		completeModel.put("averageNrOfPropertiesPerObject", averageNrOfPropertiesPerObject);
 		
 		if (Double.isFinite(averagem2)) {
