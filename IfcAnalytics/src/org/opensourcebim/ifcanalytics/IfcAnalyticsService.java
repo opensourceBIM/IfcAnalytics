@@ -132,8 +132,8 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 		IfcModelInterface model = input.getIfcModel();
 
 		modelLengthUnit = IfcUtils.getLengthUnit(model);
-		modelAreaUnit = modelLengthUnit.toAreaUnit();
-		modelVolumeUnit = modelLengthUnit.toVolumeUnit();
+		modelAreaUnit = IfcUtils.getAreaUnit(model);
+		modelVolumeUnit = IfcUtils.getVolumeUnit(model);
 		
 		ObjectNode result = OBJECT_MAPPER.createObjectNode();
 		result.set("header", proccessIfcHeader(model.getModelMetaData().getIfcHeader()));
