@@ -300,8 +300,6 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 
 		ObjectNode completeModel = OBJECT_MAPPER.createObjectNode();
 		
-		double averagem2 = totalNrOfTriangles / totalSpaceM2;
-		double averagem3 = totalNrOfTriangles / totalSpaceM3;
 
 		completeModel.put("totalTriangles", totalNrOfTriangles);
 		completeModel.put("totalSpaceM2", totalSpaceM2);
@@ -312,16 +310,27 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 		completeModel.put("totalNrOfPsets", totalNrOfPsets);
 		completeModel.put("totalNrOfRelations", totalNrOfRelations);
 
-		double averageNrOfObjectsPerM3 = totalNrOfObjects / totalSpaceM3;
-		completeModel.put("averageNrOfObjectsPerM3", averageNrOfObjectsPerM3);
-		double averageNrOfPropertiesPerObject = (double)totalNrOfProperties / totalNrOfObjects;
-		completeModel.put("averageNrOfPropertiesPerObject", averageNrOfPropertiesPerObject);
-		
-		if (Double.isFinite(averagem2)) {
-			completeModel.put("averageAmountOfTrianglesPerM2", averagem2);
+		if (totalSpaceM3 != 0) {
+			double averageNrOfObjectsPerM3 = totalNrOfObjects / totalSpaceM3;
+			if (Double.isFinite(averageNrOfObjectsPerM3)) {
+				completeModel.put("averageNrOfObjectsPerM3", averageNrOfObjectsPerM3);
+			}
+			double averagem3 = totalNrOfTriangles / totalSpaceM3;
+			if (Double.isFinite(averagem3)) {
+				completeModel.put("averageAmountOfTrianglesPerM3", averagem3);
+			}
 		}
-		if (Double.isFinite(averagem3)) {
-			completeModel.put("averageAmountOfTrianglesPerM3", averagem3);
+		if (totalNrOfObjects != 0) {
+			double averageNrOfPropertiesPerObject = (double)totalNrOfProperties / totalNrOfObjects;
+			if (Double.isFinite(averageNrOfPropertiesPerObject)) {
+				completeModel.put("averageNrOfPropertiesPerObject", averageNrOfPropertiesPerObject);
+			}
+		}
+		if (totalSpaceM2 != 0) {
+			double averagem2 = totalNrOfTriangles / totalSpaceM2;
+			if (Double.isFinite(averagem2)) {
+				completeModel.put("averageAmountOfTrianglesPerM2", averagem2);
+			}
 		}
 
 		aggregations.set("completeModel", completeModel);
