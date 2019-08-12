@@ -229,7 +229,7 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 					objectDetails.setVolume(DEFAULT_VOLUME_UNIT.convert(geometry.getVolume(), modelVolumeUnit));
 
 					if (ifcProductClass.getName().equals("IfcSpace")) {
-						totalSpaceM2 += DEFAULT_AREA_UNIT.convert(geometry.getArea(), modelAreaUnit);
+						totalSpaceM2 += DEFAULT_AREA_UNIT.convert(getArea(geometry), modelAreaUnit);
 						totalSpaceM3 += DEFAULT_VOLUME_UNIT.convert(geometry.getVolume(), modelVolumeUnit);
 					}
 				}
@@ -338,6 +338,24 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 		return aggregations;
 	}
 
+	private double getArea(GeometryInfo geometryInfo) {
+		if (geometryInfo.getAdditionalData() != null) {
+			try {
+				ObjectNode additionalData = new ObjectMapper().readValue(geometryInfo.getAdditionalData(), ObjectNode.class);
+				if (additionalData.has("WALKABLE_SURFACE_AREA")) {
+					return additionalData.get("WALKABLE_SURFACE_AREA").asDouble();
+				}
+			} catch (JsonParseException e) {
+				e.printStackTrace();
+			} catch (JsonMappingException e) {
+				e.printStackTrace();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+		return geometryInfo.getArea();
+	}
+	
 	private boolean allVerticesWithinOneMeterOfZero(GeometryInfo geometryInfo, LengthUnit modelLengthUnit) {
 		boolean allVerticesWithin1Meter = true;
 		if (geometryInfo.getData() != null && geometryInfo.getData().getVertices() != null && geometryInfo.getData().getVertices().getData() != null) {
@@ -630,7 +648,7 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 								putNameAndGuid(spaceNode, ifcSpace);
 								GeometryInfo spaceGeometry = ifcSpace.getGeometry();
 								if (spaceGeometry != null) {
-									spaceNode.put("m2", DEFAULT_AREA_UNIT.convert(spaceGeometry.getArea(), modelAreaUnit));
+									spaceNode.put("m2", DEFAULT_AREA_UNIT.convert(getArea(spaceGeometry), modelAreaUnit));
 									spaceNode.put("m3", DEFAULT_VOLUME_UNIT.convert(spaceGeometry.getVolume(), modelVolumeUnit));
 								}
 								ArrayNode zonesNode = OBJECT_MAPPER.createArrayNode();
