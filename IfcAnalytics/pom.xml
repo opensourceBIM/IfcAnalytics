@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.opensourcebim</groupId>
   <artifactId>ifcanalytics</artifactId>
-  <version>ifcanalytics-0.0.43</version>
+  <version>ifcanalytics-0.0.44-SNAPSHOT</version>
   <name>IFC Analytics</name>
   <description>IFC Analytics</description>
   <url>https://github.com/opensourceBIM/IfcAnalytics</url>
@@ -27,7 +27,7 @@
   <scm>
     <connection>scm:git:https://github.com/opensourceBIM/IfcAnalytics.git</connection>
     <developerConnection>scm:git:https://github.com/opensourceBIM/IfcAnalytics.git</developerConnection>
-    <tag>ifcanalytics-ifcanalytics-0.0.43</tag>
+    <tag>ifcanalytics-0.0.42</tag>
     <url>https://github.com/opensourceBIM/IfcAnalytics.git</url>
   </scm>
   <issueManagement>
