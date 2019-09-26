@@ -5,7 +5,7 @@
   <groupId>org.opensourcebim</groupId>
   <artifactId>ifcanalytics</artifactId>
   <version>0.0.46-SNAPSHOT</version>
-  <name>IFC Analytics</name>
+  <name>IfcAnalytics</name>
   <description>IFC Analytics</description>
   <url>https://github.com/opensourceBIM/IfcAnalytics</url>
   <organization>
