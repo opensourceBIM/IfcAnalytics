@@ -341,9 +341,11 @@ public class IfcAnalyticsService extends BimBotAbstractService {
 	private double getArea(GeometryInfo geometryInfo) {
 		if (geometryInfo.getAdditionalData() != null) {
 			try {
-				ObjectNode additionalData = new ObjectMapper().readValue(geometryInfo.getAdditionalData(), ObjectNode.class);
+				ObjectNode additionalData = OBJECT_MAPPER.readValue(geometryInfo.getAdditionalData(), ObjectNode.class);
 				if (additionalData.has("WALKABLE_SURFACE_AREA")) {
 					return additionalData.get("WALKABLE_SURFACE_AREA").asDouble();
+				} else if (additionalData.has("SURFACE_AREA_ALONG_Z")) {
+					return additionalData.get("SURFACE_AREA_ALONG_Z").asDouble();
 				}
 			} catch (JsonParseException e) {
 				e.printStackTrace();
